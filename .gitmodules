@@ -1,3 +1,6 @@
 [submodule "models/SuperGluePretrainedNetwork"]
 	path = models/SuperGluePretrainedNetwork
 	url = https://github.com/KopanevPavel/SuperGluePretrainedNetwork
+[submodule "models/SuperPointPretrainedNetwork"]
+	path = models/SuperPointPretrainedNetwork
+	url = https://github.com/KopanevPavel/SuperPointPretrainedNetwork
