@@ -6,12 +6,10 @@ import random
 import numpy as np
 import torch
 
-#import sys
-#import os
-#print(os.sys.path)
-#print(sys.version)
+import os
+path = (os.path.dirname(os.path.abspath(__file__))).replace("/tools","")+"/models/SuperPointPretrainedNetwork/"
 
-from demo_superpoint import SuperPointFrontend
+from demo_superpoint import SuperPointFrontend  
 
 torch.set_grad_enabled(False)
 
@@ -26,7 +24,7 @@ def init(cuda):
     
     # This class runs the SuperPoint network and processes its outputs.
     global superpoint
-    superpoint = SuperPointFrontend(weights_path="../models/models/weights/superpoint_v1.pth",
+    superpoint = SuperPointFrontend(weights_path=path+"superpoint_v1.pth",
                           nms_dist=4,
                           conf_thresh=0.015,
                           nn_thresh=1,
@@ -44,6 +42,7 @@ def detect(imageBuffer):
     # use copy to make sure memory is correctly re-ordered
     pts = np.float32(np.transpose(pts)).copy()
     desc = np.float32(np.transpose(desc)).copy()
+    
     return pts, desc
 
 
