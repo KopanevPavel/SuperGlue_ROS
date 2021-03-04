@@ -71,6 +71,8 @@ def match(kptsFrom, kptsTo, scoresFrom, scoresTo, descriptorsFrom, descriptorsTo
     matchesTo = matches0[np.nonzero(matches0!=-1)]
        
     matchesArray = np.stack((matchesFrom, matchesTo), axis=1)
+
+    print(matchesArray)
     
     return matchesArray
 
