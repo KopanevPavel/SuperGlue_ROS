@@ -30,11 +30,14 @@ class SuperPointDetector(object):
         self.superpoint = SuperPoint(self.config).to(self.device)
 
     def __call__(self, image):
-        if image.shape[2] == 3:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        try:
+            if image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        except: pass # Squeezed gray image array
 
         logging.debug("detecting keypoints with superpoint...")
         image_tensor = image2tensor(image, self.device)
+        # print(image_tensor.shape)
         pred = self.superpoint({'image': image_tensor})
 
         ret_dict = {
@@ -44,6 +47,8 @@ class SuperPointDetector(object):
             "scores": pred["scores"][0].cpu().detach().numpy(),
             "descriptors": pred["descriptors"][0].cpu().detach().numpy().transpose()
         }
+
+        #print(ret_dict)
 
         return ret_dict
 
