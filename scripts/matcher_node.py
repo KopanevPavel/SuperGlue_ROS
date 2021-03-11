@@ -7,6 +7,7 @@ from models.superglue import SuperGlue
 import rospy
 import numpy as np
 from sensor_msgs.msg import Image
+import time
 
 
 class SuperGlueMatcher(object):
@@ -65,6 +66,7 @@ class SuperGlueMatcher(object):
 
         # Forward !!
         logging.debug("matching keypoints with superglue...")
+        print("matching keypoints with superglue...")
         pred = self.superglue(data)
 
         # get matching keypoints
@@ -94,14 +96,34 @@ class SuperGlueMatcher(object):
 
         return ret_dict
 
+prev_time = None
+time_list = []
+kptdescs = {}
+imgs = {}
+
 
 def process_image(msg):
     img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
 
-    kptdescs = {}
-    imgs = {}
-
     img = np.squeeze(img)
+
+    global prev_time
+    global time_list
+
+    global kptdescs
+    global imgs
+    
+    if prev_time is None:
+        prev_time = time.time()
+        time_list = []
+    else:
+        cur_time = time.time()
+        delta = cur_time - prev_time
+        time_list += [delta]
+        prev_time = time.time()
+
+        print('Time:', delta)
+        print('Avr time:', np.mean(time_list))
 
     imgs["cur"] = img
     kptdescs["cur"] = detector(img)
@@ -111,9 +133,12 @@ def process_image(msg):
         img = plot_matches(imgs['ref'], imgs['cur'],
                             matches['ref_keypoints'][0:200], matches['cur_keypoints'][0:200],
                             matches['match_score'][0:200], layout='lr')
-        cv2.imshow("track", img)
+        #cv2.imshow("track", img)
+        cv2.imwrite('matcher.jpg', img)
 
     kptdescs["ref"], imgs["ref"] = kptdescs["cur"], imgs["cur"]
+
+    
     
 
 if __name__ == "__main__":
@@ -125,7 +150,7 @@ if __name__ == "__main__":
     rospy.init_node('superglue_matcher', anonymous=True)
 
     #rospy.Subscriber("/stereo/left/image_raw", Image, process_image)
-    rospy.Subscriber("/stereo/left/image_rect", Image, process_image)
+    rospy.Subscriber("/stereo/left/image_rect", Image, process_image, queue_size = 1)
     
     rospy.spin()
 

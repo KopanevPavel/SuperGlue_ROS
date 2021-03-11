@@ -53,9 +53,9 @@ def plot_matches(image0, image1, kpts0, kpts1, scores=None, layout="lr"):
 
     if layout == "lr":
         H, W = max(H0, H1), W0 + W1
-        out = 255 * np.ones((H, W, 3), np.uint8)
-        out[:H0, :W0, :] = image0
-        out[:H1, W0:, :] = image1
+        out = 255 * np.ones((H, W), np.uint8)
+        out[:H0, :W0] = image0
+        out[:H1, W0:] = image1
     elif layout == "ud":
         H, W = H0 + H1, max(W0, W1)
         out = 255 * np.ones((H, W, 3), np.uint8)
