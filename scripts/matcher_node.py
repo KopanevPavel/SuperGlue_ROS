@@ -8,6 +8,8 @@ import rospy
 import numpy as np
 from sensor_msgs.msg import Image
 import time
+import json
+from std_msgs.msg import String
 
 
 class SuperGlueMatcher(object):
@@ -135,6 +137,15 @@ def process_image(msg):
                             matches['match_score'][0:200], layout='lr')
         #cv2.imshow("track", img)
         cv2.imwrite('matcher.jpg', img)
+        encoded_data_ref_keypoints = json.dumps(matches['ref_keypoints'].tolist())
+        encoded_data_cur_keypoints = json.dumps(matches['cur_keypoints'].tolist())
+        encoded_data_match_score = json.dumps(matches['match_score'].tolist())
+
+        ref_keypoints_pub.publish(encoded_data_ref_keypoints)
+        cur_keypoints_pub.publish(encoded_data_cur_keypoints)
+        match_score_pub.publish(encoded_data_match_score)
+
+        # loaded_dictionary = json.loads(encoded_data_string)
 
     kptdescs["ref"], imgs["ref"] = kptdescs["cur"], imgs["cur"]
 
@@ -151,6 +162,9 @@ if __name__ == "__main__":
 
     #rospy.Subscriber("/stereo/left/image_raw", Image, process_image)
     rospy.Subscriber("/stereo/left/image_rect", Image, process_image, queue_size = 1)
+    ref_keypoints_pub = rospy.Publisher("/superglue/matches/ref_keypoints", String, queue_size=50)
+    cur_keypoints_pub = rospy.Publisher("/superglue/matches/cur_keypoints", String, queue_size=50)
+    match_score_pub = rospy.Publisher("/superglue/matches/match_score", String, queue_size=50)
     
     rospy.spin()
 
