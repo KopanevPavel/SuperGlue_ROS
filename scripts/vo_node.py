@@ -1,7 +1,16 @@
-# based on: https://github.com/uoip/monoVO-python
+#!/usr/bin/env python3
 
+
+import rospy
 import numpy as np
+from sensor_msgs.msg import Image
+import time
+import json
 import cv2
+from std_msgs.msg import String
+from tools.PinholeCamera import *
+
+# based on: https://github.com/uoip/monoVO-python
 
 
 class VisualOdometry(object):
@@ -9,15 +18,12 @@ class VisualOdometry(object):
     A simple frame by frame visual odometry
     """
 
-    def __init__(self, detector, matcher, cam):
+    def __init__(self, cam):
         """
         :param detector: a feature detector can detect keypoints their descriptors
         :param matcher: a keypoints matcher matching keypoints between two frames
         :param cam: camera parameters
         """
-        # feature detector and keypoints matcher
-        self.detector = detector
-        self.matcher = matcher
 
         # camera parameters
         self.focal = cam.fx
@@ -33,43 +39,29 @@ class VisualOdometry(object):
         self.cur_R = None
         self.cur_t = None
 
-    def update(self, image, absolute_scale=1):
+    def update(self, matches, absolute_scale=0):
         """
         update a new image to visual odometry, and compute the pose
         :param image: input image
         :param absolute_scale: the absolute scale between current frame and last frame
         :return: R and t of current frame
         """
-        kptdesc = self.detector(image)
+        
 
-        # first frame
-        if self.index == 0:
-            # save keypoints and descriptors
-            self.kptdescs["cur"] = kptdesc
+        # compute relative R,t between ref and cur frame
+        E, mask = cv2.findEssentialMat(matches['cur_keypoints'], matches['ref_keypoints'],
+                                        focal=self.focal, pp=self.pp,
+                                        method=cv2.RANSAC, prob=0.999, threshold=1.0)
+        _, R, t, mask = cv2.recoverPose(E, matches['cur_keypoints'], matches['ref_keypoints'],
+                                        focal=self.focal, pp=self.pp)
 
-            # start point
-            self.cur_R = np.identity(3)
-            self.cur_t = np.zeros((3, 1))
-        else:
-            # update keypoints and descriptors
-            self.kptdescs["cur"] = kptdesc
+        print('R:', R)
+        print('t:', t)
 
-            # match keypoints
-            matches = self.matcher(self.kptdescs)
-
-            # compute relative R,t between ref and cur frame
-            E, mask = cv2.findEssentialMat(matches['cur_keypoints'], matches['ref_keypoints'],
-                                           focal=self.focal, pp=self.pp,
-                                           method=cv2.RANSAC, prob=0.999, threshold=1.0)
-            _, R, t, mask = cv2.recoverPose(E, matches['cur_keypoints'], matches['ref_keypoints'],
-                                            focal=self.focal, pp=self.pp)
-
-            # get absolute pose based on absolute_scale
-            if (absolute_scale > 0.1):
-                self.cur_t = self.cur_t + absolute_scale * self.cur_R.dot(t)
-                self.cur_R = R.dot(self.cur_R)
-
-        self.kptdescs["ref"] = self.kptdescs["cur"]
+        # get absolute pose based on absolute_scale
+        if (absolute_scale > 0.1):
+            self.cur_t = self.cur_t + absolute_scale * self.cur_R.dot(t)
+            self.cur_R = R.dot(self.cur_R)
 
         self.index += 1
         return self.cur_R, self.cur_t
@@ -96,20 +88,38 @@ class AbosluteScaleComputer(object):
         return scale
 
 
-if __name__ == "__main__":
-    from DataLoader.KITTILoader import KITTILoader
-    from Detectors.HandcraftDetector import HandcraftDetector
-    from Matchers.FrameByFrameMatcher import FrameByFrameMatcher
 
-    loader = KITTILoader()
-    detector = HandcraftDetector({"type": "SIFT"})
-    matcher = FrameByFrameMatcher({"type": "FLANN"})
+def process_matching_data(data):
+    loaded_data = json.loads(data.data)
+    data_ = np.array(loaded_data)
+    # print(data_.shape)
+
+    matches = {}
+    matches['cur_keypoints'] = data_[1]
+    matches['ref_keypoints'] = data_[0]
+    matches['match_score'] = data_[2]
+
+    R, t = vo.update(matches)
+    # print('R:', R)
+    # print('t:', t)
+    
+
+if __name__ == "__main__":
+    rospy.init_node('visual_odometry', anonymous=True)
+
+    # rospy.Subscriber("/stereo/left/image_rect", Image, process_image, queue_size = 1)
+    # rospy.Subscriber("/superglue/matches/ref_keypoints", String, process_ref_keypoints, queue_size=50)
+    # rospy.Subscriber("/superglue/matches/cur_keypoints", String, process_cur_keypoints, queue_size=50)
+    # rospy.Subscriber("/superglue/matches/match_score", String, process_match_score, queue_size=50)
+
+    rospy.Subscriber("/superglue/matches/all_data", String, process_matching_data, queue_size=50)
+    
     absscale = AbosluteScaleComputer()
 
-    vo = VisualOdometry(detector, matcher, loader.cam)
-    for i, img in enumerate(loader):
-        gt_pose = loader.get_cur_pose()
-        R, t = vo.update(img, absscale.update(gt_pose))
+    cam = PinholeCamera(1280.0, 560.0, 816.40221474060002, 817.38388562809996, 608.82658427579997, 266.68865652440002)
+    vo = VisualOdometry(cam)
+
+    rospy.spin()
 
 
         
