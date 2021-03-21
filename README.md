@@ -1,8 +1,8 @@
 # SuperGlue ROS
 ROS wrapper for SuperGlue and SuperPoint models
 
- - SuperGlue:[paper](https://arxiv.org/abs/1911.11763)
- - SuperPoint:[paper](https://arxiv.org/abs/1712.07629)
+ - SuperGlue: [paper](https://arxiv.org/abs/1911.11763)
+ - SuperPoint: [paper](https://arxiv.org/abs/1712.07629)
 
 ## System
  - ROS Melodic (with python3 support)
