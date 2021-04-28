@@ -113,6 +113,7 @@ if __name__ == "__main__":
     # rospy.Subscriber("/superglue/matches/match_score", String, process_match_score, queue_size=50)
 
     rospy.Subscriber("/superglue/matches/all_data", String, process_matching_data, queue_size=50)
+    path_pub = rospy.Publisher('/superglue/matches/path', Path, queue_size=10)
     
     absscale = AbosluteScaleComputer()
 
@@ -120,6 +121,5 @@ if __name__ == "__main__":
     vo = VisualOdometry(cam)
 
     rospy.spin()
-
 
         

@@ -10,15 +10,16 @@ from sensor_msgs.msg import Image
 import time
 import json
 from std_msgs.msg import String
+from collections import deque 
 
 
 class SuperGlueMatcher(object):
     default_config = {
-        "descriptor_dim": 256,
+        "descriptor_dim": 128,
         "weights": "outdoor",
         "keypoint_encoder": [32, 64, 128, 256],
         "GNN_layers": ["self", "cross"] * 9,
-        "sinkhorn_iterations": 100,
+        "sinkhorn_iterations": 50,
         "match_threshold": 0.2,
         "cuda": True
     }
@@ -98,65 +99,98 @@ class SuperGlueMatcher(object):
 
         return ret_dict
 
-prev_time = None
-time_list = []
-kptdescs = {}
-imgs = {}
+class MatcherNode:
+    def __init__(self):
+        rospy.init_node("superglue_matcher", anonymous=True)
+        self.kptdescs = {}
+        self.imgs = {}
+        self.RATE = 60
+        self.cnt_left = 0
+        self.cnt_right = 0
+        self.image_left_buf = deque(maxlen=100)
+        self.image_right_buf = deque(maxlen=100)
+        self.stereo = True
+        self.mutex = Lock()
+
+#       init rospy publishers
+        self.ref_keypoints_pub = rospy.Publisher("/superglue/matches/ref_keypoints", String, queue_size=50)
+        self.cur_keypoints_pub = rospy.Publisher("/superglue/matches/cur_keypoints", String, queue_size=50)
+        self.match_score_pub = rospy.Publisher("/superglue/matches/match_score", String, queue_size=50)
+        self.all_data_pub = rospy.Publisher("/superglue/matches/all_data", String, queue_size=50)  
+
+#       init rospy subscribers
+        rospy.Subscriber("/stereo/left/image_rect", Image, image_left_callback, queue_size = 1)
+        rospy.Subscriber("/stereo/right/image_rect", Image, image_right_callback, queue_size = 1)
+
+        # rospy.sleep(3)
+        self.timer = rospy.Timer(rospy.Duration(1. / self.RATE), self.timer_callback)
 
 
-def process_image(msg):
-    img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+    def image_left_callback(self, msg):
+        if self.cnt_left%10 == 0:
+            img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+            img = np.squeeze(img)
 
-    img = np.squeeze(img)
+            self.image_left_buf.append([msg.header.stamp, img])
+        cnt_left += 1
 
-    global prev_time
-    global time_list
 
-    global kptdescs
-    global imgs
-    
-    if prev_time is None:
-        prev_time = time.time()
-        time_list = []
-    else:
-        cur_time = time.time()
-        delta = cur_time - prev_time
-        time_list += [delta]
-        prev_time = time.time()
+    def image_right_callback(self, msg):
+        if self.cnt_right%10 == 0:
+            img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+            img = np.squeeze(img)
 
-        print('Time:', delta)
-        print('Avr time:', np.mean(time_list))
+            self.image_right_buf.append([msg.header.stamp, img])
+        cnt_right += 1
 
-    imgs["cur"] = img
-    kptdescs["cur"] = detector(img)
-    
-    if "ref" in kptdescs:
-        matches = matcher(kptdescs)
-        img = plot_matches(imgs['ref'], imgs['cur'],
-                            matches['ref_keypoints'][0:200], matches['cur_keypoints'][0:200],
-                            matches['match_score'][0:200], layout='lr')
-        #cv2.imshow("track", img)
-        cv2.imwrite('matcher.jpg', img)
-        encoded_data_ref_keypoints = json.dumps(matches['ref_keypoints'].tolist())
-        encoded_data_cur_keypoints = json.dumps(matches['cur_keypoints'].tolist())
-        encoded_data_match_score = json.dumps(matches['match_score'].tolist())
 
-        all_data = [matches['ref_keypoints'].tolist()] + [matches['ref_keypoints'].tolist()] + [matches['ref_keypoints'].tolist()]
-        encoded_data_all = json.dumps(all_data)
+    def timer_callback(self, event):
+        self.mutex.acquire()
 
-        ref_keypoints_pub.publish(encoded_data_ref_keypoints)
-        cur_keypoints_pub.publish(encoded_data_cur_keypoints)
-        match_score_pub.publish(encoded_data_match_score)
+        if self.image_left_buf:
+            start_time = time.time()
+            self.process(*self.image_left_buf[-1])
+            print('Time for left image:', time.time()-start_time)
+            self.image_left_buf.popleft()
 
-        all_data_pub.publish(encoded_data_all)
+        if self.stereo:
+            if self.image_right_buf:
+                start_time = time.time()
+                self.process(*self.image_right_buf[-1])
+                print('Time for right image:', time.time()-start_time)
+                self.image_right_buf.popleft()
         
+        self.mutex.release()
 
-        # loaded_dictionary = json.loads(encoded_data_string)
 
-    kptdescs["ref"], imgs["ref"] = kptdescs["cur"], imgs["cur"]
+    def process(self, t, img):
+        self.imgs["cur"] = img
+        self.kptdescs["cur"] = detector(img)
+        
+        if "ref" in kptdescs:
+            matches = matcher(self.kptdescs)
+            img = plot_matches(self.imgs['ref'], self.imgs['cur'],
+                                matches['ref_keypoints'][0:200], matches['cur_keypoints'][0:200],
+                                matches['match_score'][0:200], layout='lr')
+            #cv2.imshow("track", img)
+            cv2.imwrite('matcher.jpg', img)
+            encoded_data_ref_keypoints = json.dumps(matches['ref_keypoints'].tolist())
+            encoded_data_cur_keypoints = json.dumps(matches['cur_keypoints'].tolist())
+            encoded_data_match_score = json.dumps(matches['match_score'].tolist())
 
-    
-    
+            all_data = [matches['ref_keypoints'].tolist()] + [matches['ref_keypoints'].tolist()] + [matches['ref_keypoints'].tolist()]
+            encoded_data_all = json.dumps(all_data)
+
+            self.ref_keypoints_pub.publish(encoded_data_ref_keypoints)
+            self.cur_keypoints_pub.publish(encoded_data_cur_keypoints)
+            self.match_score_pub.publish(encoded_data_match_score)
+
+            self.all_data_pub.publish(encoded_data_all)
+            
+            # loaded_dictionary = json.loads(encoded_data_string)
+
+        self.kptdescs["ref"], self.imgs["ref"] = self.kptdescs["cur"], self.imgs["cur"]
+
 
 if __name__ == "__main__":
     from detector import SuperPointDetector
@@ -164,15 +198,6 @@ if __name__ == "__main__":
     detector = SuperPointDetector({"cuda": 0})
     matcher = SuperGlueMatcher({"cuda": 0, "weights": "outdoor"})
 
-    rospy.init_node('superglue_matcher', anonymous=True)
-
-    #rospy.Subscriber("/stereo/left/image_raw", Image, process_image)
-    rospy.Subscriber("/stereo/left/image_rect", Image, process_image, queue_size = 1)
-    ref_keypoints_pub = rospy.Publisher("/superglue/matches/ref_keypoints", String, queue_size=50)
-    cur_keypoints_pub = rospy.Publisher("/superglue/matches/cur_keypoints", String, queue_size=50)
-    match_score_pub = rospy.Publisher("/superglue/matches/match_score", String, queue_size=50)
-    all_data_pub = rospy.Publisher("/superglue/matches/all_data", String, queue_size=50)  
-
-    
+    matcher_node = MatcherNode()
     rospy.spin()
 
