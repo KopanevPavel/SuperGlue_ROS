@@ -25,6 +25,12 @@ catkin build
 source devel/setup.bash
 ```
 
+Add to python path:
+```sh
+export PYTHONPATH=$PYTHONPATH:/home/jetson/SLAM/runbot_custom_localization/frontend/SuperGlue_ROS/src/SuperGlue_ROS
+export PYTHONPATH=$PYTHONPATH:/home/jetson/SLAM/runbot_custom_localization/frontend/SuperGlue_ROS/src/SuperGlue_ROS/models/SuperGluePretrainedNetwork
+```
+
 Run SuperPoint detector:
 ```sh
 rosrun SuperGlue_ROS detector_node
