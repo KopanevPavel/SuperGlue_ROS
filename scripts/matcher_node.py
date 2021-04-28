@@ -11,6 +11,9 @@ import time
 import json
 from std_msgs.msg import String
 from collections import deque 
+from threading import Lock
+from detector import SuperPointDetector
+from tqdm import tqdm
 
 
 class SuperGlueMatcher(object):
@@ -19,7 +22,7 @@ class SuperGlueMatcher(object):
         "weights": "outdoor",
         "keypoint_encoder": [32, 64, 128, 256],
         "GNN_layers": ["self", "cross"] * 9,
-        "sinkhorn_iterations": 50,
+        "sinkhorn_iterations": 100,
         "match_threshold": 0.2,
         "cuda": True
     }
@@ -107,9 +110,11 @@ class MatcherNode:
         self.RATE = 60
         self.cnt_left = 0
         self.cnt_right = 0
-        self.image_left_buf = deque(maxlen=100)
-        self.image_right_buf = deque(maxlen=100)
-        self.stereo = True
+        # self.image_left_buf = deque(maxlen=10000)
+        # self.image_right_buf = deque(maxlen=10000)
+        self.image_left_buf = []
+        self.image_right_buf = []
+        self.stereo = False
         self.mutex = Lock()
 
 #       init rospy publishers
@@ -119,29 +124,34 @@ class MatcherNode:
         self.all_data_pub = rospy.Publisher("/superglue/matches/all_data", String, queue_size=50)  
 
 #       init rospy subscribers
-        rospy.Subscriber("/stereo/left/image_rect", Image, image_left_callback, queue_size = 1)
-        rospy.Subscriber("/stereo/right/image_rect", Image, image_right_callback, queue_size = 1)
+        rospy.Subscriber("/stereo/left/image_rect", Image, self.image_left_callback, queue_size = 1)
+        if self.stereo:
+            rospy.Subscriber("/stereo/right/image_rect", Image, self.image_right_callback, queue_size = 1)
 
         # rospy.sleep(3)
-        self.timer = rospy.Timer(rospy.Duration(1. / self.RATE), self.timer_callback)
+        # self.timer = rospy.Timer(rospy.Duration(1. / self.RATE), self.timer_callback)
 
 
     def image_left_callback(self, msg):
-        if self.cnt_left%10 == 0:
-            img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
-            img = np.squeeze(img)
+        #if self.cnt_left%10 == 0:
+        img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+        img = np.squeeze(img)
 
-            self.image_left_buf.append([msg.header.stamp, img])
-        cnt_left += 1
+        self.image_left_buf.append([msg.header.stamp, img])
+        if len(self.image_left_buf) == 30:
+            self.process_all(self.image_left_buf)
+        # self.cnt_left += 1
 
 
     def image_right_callback(self, msg):
-        if self.cnt_right%10 == 0:
-            img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
-            img = np.squeeze(img)
+        #if self.cnt_right%10 == 0:
+        img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+        img = np.squeeze(img)
 
-            self.image_right_buf.append([msg.header.stamp, img])
-        cnt_right += 1
+        self.image_right_buf.append([msg.header.stamp, img])
+        if len(self.image_right_buf) == 30:
+            self.process_all(self.image_right_buf)
+        # self.cnt_right += 1
 
 
     def timer_callback(self, event):
@@ -149,25 +159,32 @@ class MatcherNode:
 
         if self.image_left_buf:
             start_time = time.time()
-            self.process(*self.image_left_buf[-1])
+            self.process(*(self.image_left_buf[-1]))
             print('Time for left image:', time.time()-start_time)
             self.image_left_buf.popleft()
 
         if self.stereo:
             if self.image_right_buf:
                 start_time = time.time()
-                self.process(*self.image_right_buf[-1])
+                self.process(*(self.image_right_buf[-1]))
                 print('Time for right image:', time.time()-start_time)
                 self.image_right_buf.popleft()
         
         self.mutex.release()
 
+    
+    def process_all(self, data):
+        for img in tqdm(data):
+            self.process(*img)
+
 
     def process(self, t, img):
         self.imgs["cur"] = img
         self.kptdescs["cur"] = detector(img)
+
+        # print("Frame time: ", t.to_sec())
         
-        if "ref" in kptdescs:
+        if "ref" in self.kptdescs:
             matches = matcher(self.kptdescs)
             img = plot_matches(self.imgs['ref'], self.imgs['cur'],
                                 matches['ref_keypoints'][0:200], matches['cur_keypoints'][0:200],
@@ -178,7 +195,7 @@ class MatcherNode:
             encoded_data_cur_keypoints = json.dumps(matches['cur_keypoints'].tolist())
             encoded_data_match_score = json.dumps(matches['match_score'].tolist())
 
-            all_data = [matches['ref_keypoints'].tolist()] + [matches['ref_keypoints'].tolist()] + [matches['ref_keypoints'].tolist()]
+            all_data = [matches['ref_keypoints'].tolist()] + [matches['cur_keypoints'].tolist()] + [matches['match_score'].tolist()] + [str(t)]
             encoded_data_all = json.dumps(all_data)
 
             self.ref_keypoints_pub.publish(encoded_data_ref_keypoints)
@@ -193,10 +210,8 @@ class MatcherNode:
 
 
 if __name__ == "__main__":
-    from detector import SuperPointDetector
-
-    detector = SuperPointDetector({"cuda": 0})
-    matcher = SuperGlueMatcher({"cuda": 0, "weights": "outdoor"})
+    detector = SuperPointDetector({"cuda": 1})
+    matcher = SuperGlueMatcher({"cuda": 1, "weights": "outdoor"})
 
     matcher_node = MatcherNode()
     rospy.spin()
