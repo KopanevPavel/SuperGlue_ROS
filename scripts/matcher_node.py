@@ -110,18 +110,16 @@ class MatcherNode:
         self.RATE = 60
         self.cnt_left = 0
         self.cnt_right = 0
-        # self.image_left_buf = deque(maxlen=10000)
-        # self.image_right_buf = deque(maxlen=10000)
-        self.image_left_buf = []
-        self.image_right_buf = []
-        self.stereo = False
+        self.stereo = True
+        self.use_timer = True
         self.mutex = Lock()
 
 #       init rospy publishers
         self.ref_keypoints_pub = rospy.Publisher("/superglue/matches/ref_keypoints", String, queue_size=50)
         self.cur_keypoints_pub = rospy.Publisher("/superglue/matches/cur_keypoints", String, queue_size=50)
         self.match_score_pub = rospy.Publisher("/superglue/matches/match_score", String, queue_size=50)
-        self.all_data_pub = rospy.Publisher("/superglue/matches/all_data", String, queue_size=50)  
+        self.all_data_left_pub = rospy.Publisher("/superglue/matches/all_data_left", String, queue_size=50)  
+        self.all_data_right_pub = rospy.Publisher("/superglue/matches/all_data_right", String, queue_size=50) 
 
 #       init rospy subscribers
         rospy.Subscriber("/stereo/left/image_rect", Image, self.image_left_callback, queue_size = 1)
@@ -129,60 +127,77 @@ class MatcherNode:
             rospy.Subscriber("/stereo/right/image_rect", Image, self.image_right_callback, queue_size = 1)
 
         # rospy.sleep(3)
-        # self.timer = rospy.Timer(rospy.Duration(1. / self.RATE), self.timer_callback)
+        if self.use_timer:
+            self.timer = rospy.Timer(rospy.Duration(1. / self.RATE), self.timer_callback)
+        else:
+            self.timer = None
+
+        if self.timer is None:
+            self.image_left_buf = []
+            self.image_right_buf = []
+        else:
+            self.image_left_buf = deque(maxlen=10000)
+            self.image_right_buf = deque(maxlen=10000)
 
 
     def image_left_callback(self, msg):
-        #if self.cnt_left%10 == 0:
+        # if self.cnt_left%10 == 0:
         img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
         img = np.squeeze(img)
 
+        # print("LEFT:", self.cnt_left)
+
         self.image_left_buf.append([msg.header.stamp, img])
-        if len(self.image_left_buf) == 30:
-            self.process_all(self.image_left_buf)
-        # self.cnt_left += 1
+        if self.timer is None:
+            if len(self.image_left_buf) == 30:
+                with self.mutex:
+                    self.process_all(self.image_left_buf, cam_type="left")
+        self.cnt_left += 1
 
 
     def image_right_callback(self, msg):
-        #if self.cnt_right%10 == 0:
+        # if self.cnt_right%10 == 0:
         img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
         img = np.squeeze(img)
 
+        # print("RIGHT:", self.cnt_left)
+
         self.image_right_buf.append([msg.header.stamp, img])
-        if len(self.image_right_buf) == 30:
-            self.process_all(self.image_right_buf)
-        # self.cnt_right += 1
+        if self.timer is None:
+            if len(self.image_right_buf) == 30:
+                with self.mutex:
+                    self.process_all(self.image_right_buf, cam_type="right")
+        self.cnt_right += 1
 
 
     def timer_callback(self, event):
-        self.mutex.acquire()
-
-        if self.image_left_buf:
-            start_time = time.time()
-            self.process(*(self.image_left_buf[-1]))
-            print('Time for left image:', time.time()-start_time)
-            self.image_left_buf.popleft()
-
-        if self.stereo:
-            if self.image_right_buf:
+        with self.mutex:
+            if self.image_left_buf:
                 start_time = time.time()
-                self.process(*(self.image_right_buf[-1]))
-                print('Time for right image:', time.time()-start_time)
-                self.image_right_buf.popleft()
+                self.process(*(self.image_left_buf[0]), "left")
+                # print('Time for left image:', time.time()-start_time)
+                self.image_left_buf.popleft()
+
+            if self.stereo:
+                if self.image_right_buf:
+                    start_time = time.time()
+                    self.process(*(self.image_right_buf[0]), "right")
+                    # print('Time for right image:', time.time()-start_time)
+                    self.image_right_buf.popleft()
         
-        self.mutex.release()
 
     
-    def process_all(self, data):
+    def process_all(self, data, cam_type):
+        print("Processing " + cam_type + "...")
         for img in tqdm(data):
-            self.process(*img)
+            self.process(*img, cam_type)
 
 
-    def process(self, t, img):
+    def process(self, t, img, cam_type):
         self.imgs["cur"] = img
         self.kptdescs["cur"] = detector(img)
 
-        # print("Frame time: ", t.to_sec())
+        print("Frame " + cam_type + " time: ", t.to_sec())
         
         if "ref" in self.kptdescs:
             matches = matcher(self.kptdescs)
@@ -190,7 +205,7 @@ class MatcherNode:
                                 matches['ref_keypoints'][0:200], matches['cur_keypoints'][0:200],
                                 matches['match_score'][0:200], layout='lr')
             #cv2.imshow("track", img)
-            cv2.imwrite('matcher.jpg', img)
+            cv2.imwrite('matcher_' + cam_type + '.jpg', img)
             encoded_data_ref_keypoints = json.dumps(matches['ref_keypoints'].tolist())
             encoded_data_cur_keypoints = json.dumps(matches['cur_keypoints'].tolist())
             encoded_data_match_score = json.dumps(matches['match_score'].tolist())
@@ -202,7 +217,10 @@ class MatcherNode:
             self.cur_keypoints_pub.publish(encoded_data_cur_keypoints)
             self.match_score_pub.publish(encoded_data_match_score)
 
-            self.all_data_pub.publish(encoded_data_all)
+            if cam_type == "left":
+                self.all_data_left_pub.publish(encoded_data_all)
+            if cam_type == "right":
+                self.all_data_right_pub.publish(encoded_data_all)
             
             # loaded_dictionary = json.loads(encoded_data_string)
 
