@@ -15,7 +15,7 @@ from collections import deque
 
 class SuperGlueMatcher(object):
     default_config = {
-        "descriptor_dim": 128,
+        "descriptor_dim": 256,
         "weights": "outdoor",
         "keypoint_encoder": [32, 64, 128, 256],
         "GNN_layers": ["self", "cross"] * 9,
