@@ -29,6 +29,7 @@ Add to python path:
 ```sh
 export PYTHONPATH=$PYTHONPATH:/home/jetson/SLAM/runbot_custom_localization/frontend/SuperGlue_ROS/src/SuperGlue_ROS
 export PYTHONPATH=$PYTHONPATH:/home/jetson/SLAM/runbot_custom_localization/frontend/SuperGlue_ROS/src/SuperGlue_ROS/models/SuperGluePretrainedNetwork
+export PYTHONPATH=$PYTHONPATH:/home/jetson/SLAM/runbot_custom_localization/frontend/SuperGlue_ROS/src/SuperGlue_ROS/models/SuperPointPretrainedNetwork
 ```
 
 Run SuperPoint detector:
