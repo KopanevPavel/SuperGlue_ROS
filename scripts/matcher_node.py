@@ -14,6 +14,7 @@ from collections import deque
 from threading import Lock
 from detector import SuperPointDetector
 from tqdm import tqdm
+# import imageio
 
 
 class SuperGlueMatcher(object):
@@ -206,6 +207,7 @@ class MatcherNode:
                                 matches['match_score'][0:200], layout='lr')
             #cv2.imshow("track", img)
             cv2.imwrite('matcher_' + cam_type + '.jpg', img)
+            # cv2.imwrite('results/' + cam_type + '/' + str(t) + '.jpg', img)
             encoded_data_ref_keypoints = json.dumps(matches['ref_keypoints'].tolist())
             encoded_data_cur_keypoints = json.dumps(matches['cur_keypoints'].tolist())
             encoded_data_match_score = json.dumps(matches['match_score'].tolist())
