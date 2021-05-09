@@ -111,9 +111,11 @@ class MatcherNode:
         self.RATE = 60
         self.cnt_left = 0
         self.cnt_right = 0
-        self.stereo = True
-        self.use_timer = True
+        self.cnt = 0
+        self.stereo = False
+        self.use_timer = True # We are processing images from the buffer with set rate
         self.mutex = Lock()
+        self.sequential = True # We are processing the most recent image after previous pair was processed through the network
 
 #       init rospy publishers
         self.ref_keypoints_pub = rospy.Publisher("/superglue/matches/ref_keypoints", String, queue_size=50)
@@ -137,8 +139,8 @@ class MatcherNode:
             self.image_left_buf = []
             self.image_right_buf = []
         else:
-            self.image_left_buf = deque(maxlen=10000)
-            self.image_right_buf = deque(maxlen=10000)
+            self.image_left_buf = deque(maxlen=100)
+            self.image_right_buf = deque(maxlen=100)
 
 
     def image_left_callback(self, msg):
@@ -147,13 +149,14 @@ class MatcherNode:
         img = np.squeeze(img)
 
         # print("LEFT:", self.cnt_left)
+        print("LEFT buffer size: ", len(self.image_left_buf))
 
         self.image_left_buf.append([msg.header.stamp, img])
         if self.timer is None:
             if len(self.image_left_buf) == 30:
                 with self.mutex:
                     self.process_all(self.image_left_buf, cam_type="left")
-        self.cnt_left += 1
+        # self.cnt_left += 1
 
 
     def image_right_callback(self, msg):
@@ -168,23 +171,31 @@ class MatcherNode:
             if len(self.image_right_buf) == 30:
                 with self.mutex:
                     self.process_all(self.image_right_buf, cam_type="right")
-        self.cnt_right += 1
+        # self.cnt_right += 1
 
 
     def timer_callback(self, event):
         with self.mutex:
             if self.image_left_buf:
                 start_time = time.time()
-                self.process(*(self.image_left_buf[0]), "left")
-                # print('Time for left image:', time.time()-start_time)
-                self.image_left_buf.popleft()
+                if self.sequential:
+                    self.process(*(self.image_left_buf[-1]), "left")
+                    print('Time for left image:', time.time()-start_time)
+                else:
+                    self.process(*(self.image_left_buf[0]), "left")
+                    print('Time for left image:', time.time()-start_time)
+                    self.image_left_buf.popleft()
 
             if self.stereo:
                 if self.image_right_buf:
                     start_time = time.time()
-                    self.process(*(self.image_right_buf[0]), "right")
-                    # print('Time for right image:', time.time()-start_time)
-                    self.image_right_buf.popleft()
+                    if self.sequential:
+                        self.process(*(self.image_right_buf[-1]), "right")
+                        print('Time for right image:', time.time()-start_time)
+                    else:
+                        self.process(*(self.image_right_buf[0]), "right")
+                        print('Time for right image:', time.time()-start_time)
+                        self.image_right_buf.popleft()
         
 
     
@@ -195,10 +206,16 @@ class MatcherNode:
 
 
     def process(self, t, img, cam_type):
+        if self.sequential:
+            if cam_type == "right":
+                self.image_right_buf.clear()
+            if cam_type == "left":
+                self.image_left_buf.clear()
+
         self.imgs["cur"] = img
         self.kptdescs["cur"] = detector(img)
 
-        print("Frame " + cam_type + " time: ", t.to_sec())
+        # print("Frame " + cam_type + " time: ", t.to_sec())
         
         if "ref" in self.kptdescs:
             matches = matcher(self.kptdescs)
@@ -207,7 +224,9 @@ class MatcherNode:
                                 matches['match_score'][0:200], layout='lr')
             #cv2.imshow("track", img)
             cv2.imwrite('matcher_' + cam_type + '.jpg', img)
-            # cv2.imwrite('results/' + cam_type + '/' + str(t) + '.jpg', img)
+            # self.cnt += 1
+            # if self.cnt % 6 == 0:
+                # cv2.imwrite('results/' + cam_type + '/' + str(t) + '.jpg', img)
             encoded_data_ref_keypoints = json.dumps(matches['ref_keypoints'].tolist())
             encoded_data_cur_keypoints = json.dumps(matches['cur_keypoints'].tolist())
             encoded_data_match_score = json.dumps(matches['match_score'].tolist())
