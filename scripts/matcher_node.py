@@ -109,6 +109,7 @@ class MatcherNode:
         self.kptdescs = {}
         self.imgs = {}
         self.RATE = 60
+        self.prev_t = 0
         self.cnt_left = 0
         self.cnt_right = 0
         self.cnt = 0
@@ -151,7 +152,7 @@ class MatcherNode:
         # print("LEFT:", self.cnt_left)
         print("LEFT buffer size: ", len(self.image_left_buf))
 
-        self.image_left_buf.append([msg.header.stamp, img])
+        self.image_left_buf.append([msg.header.stamp.to_sec(), img])
         if self.timer is None:
             if len(self.image_left_buf) == 30:
                 with self.mutex:
@@ -166,7 +167,7 @@ class MatcherNode:
 
         # print("RIGHT:", self.cnt_left)
 
-        self.image_right_buf.append([msg.header.stamp, img])
+        self.image_right_buf.append([msg.header.stamp.to_sec(), img])
         if self.timer is None:
             if len(self.image_right_buf) == 30:
                 with self.mutex:
@@ -231,7 +232,7 @@ class MatcherNode:
             encoded_data_cur_keypoints = json.dumps(matches['cur_keypoints'].tolist())
             encoded_data_match_score = json.dumps(matches['match_score'].tolist())
 
-            all_data = [matches['ref_keypoints'].tolist()] + [matches['cur_keypoints'].tolist()] + [matches['match_score'].tolist()] + [str(t)]
+            all_data = [matches['ref_keypoints'].tolist()] + [matches['cur_keypoints'].tolist()] + [matches['match_score'].tolist()] + [str(self.prev_t)] + [str(t)]
             encoded_data_all = json.dumps(all_data)
 
             self.ref_keypoints_pub.publish(encoded_data_ref_keypoints)
@@ -246,6 +247,7 @@ class MatcherNode:
             # loaded_dictionary = json.loads(encoded_data_string)
 
         self.kptdescs["ref"], self.imgs["ref"] = self.kptdescs["cur"], self.imgs["cur"]
+        self.prev_t = t
 
 
 if __name__ == "__main__":
