@@ -4,6 +4,8 @@ ROS wrapper for SuperGlue and SuperPoint models
  - SuperGlue: [paper](https://arxiv.org/abs/1911.11763)
  - SuperPoint: [paper](https://arxiv.org/abs/1712.07629)
 
+You can find **the utilization of this module** in [this](https://github.com/KopanevPavel/runbot_custom_localization) repository in the frontend part of the visual-inertial SLAM system
+
 ## System
  - ROS Melodic (with python3 support)
  - Pytorch
